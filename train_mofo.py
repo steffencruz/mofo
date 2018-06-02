@@ -1,3 +1,19 @@
+"""
+    More-Four game trainer, made by Steffen Cruz 2018
+
+    Trains an RL agent to play mofo.
+
+    The opponent is np.random.randint() but can be set to an earlier version
+    of the model by setting update_opponent=True
+
+    -> Results are written every $neval games to my-output/graph-$neval
+    -> To view trained model in tensorboard, tensorboard --logdir my-output/graph-$neval/
+
+    TO DO:
+    -> Make it train better.
+    -> Make a tournament
+"""
+
 import gym
 import numpy as np
 import time
@@ -7,10 +23,6 @@ import tensorflow as tf
 import my_models
 import my_stats
 
-# project checklist
-# -> save the NNs and view the files
-# -> get the model to train
-# -> use self play with stronger opponent to train further, and also to determine which AI is better
 
 if __name__ == '__main__':
 
@@ -26,6 +38,7 @@ if __name__ == '__main__':
     neval = 1000            # How often to store performance data
     update_frequency = 20   # How often to perform a training step.
     max_steps = nrows*ncols # Max moves per game for p1
+    update_opponent=False   # if true the NN will train against the most recent version of itself
 
     nfilters = 16           # number of convolutional filters
     f_size = 4              # convolutional filter sizes
@@ -147,8 +160,8 @@ if __name__ == '__main__':
                         # this saves checkpoints for re-opening
                         saver.save(sess,'./my-checkpoints'+'/model',global_step=episode)
 
-                        # load in most recent model checkpoint
-                        # game.env.InitAI()
+                        if update_checkpoint: # load in most recent model checkpoint
+                            game.env.InitAI()
 
                     break
 
