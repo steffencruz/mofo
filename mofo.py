@@ -1,5 +1,37 @@
 """
 More-Four game environment, made by Steffen Cruz 2018
+
+A twist on the classic connect-4 game, where connecting 4 counters
+in a straight line scores a point and earns the player another turn.
+With a strong playing strategy, a player can dominate the board
+their opponent by accumulating rewards and additional turns.
+
+The winner is the player with the most points when the board is full.
+
+This can be played with any board size or shape,
+which significantly affects the complexity of the game and possible strategies.
+
+To import this environment into OpenAI gym:-
+
+    1. create or add to existing __init__.py file in gym/envs/my_collection:
+
+    from gym.envs.my_collection.mofo import MoFoEnv
+
+    2. register the env in __init__.py file in gym/envs/
+
+    register(
+        id='MoFo-v0',
+        entry_point='gym.envs.my_collection:MoFoEnv',
+        max_episode_steps=200,
+        reward_threshold=50.0,
+    )
+
+    3. To load environment and apply custom settings;
+
+        game = gym.make('MoFo-v0') # default initialization
+        game.env.initialize(nrows,ncols,verbose,training,testing)
+        # all variables and methods are accessible via game.env
+
 """
 
 import math
