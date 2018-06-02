@@ -35,10 +35,10 @@ if __name__ == '__main__':
 
     total_episodes = 10000  # total number of games to train agent on
     episode = 0             # starting episode
-    neval = 1000            # How often to store performance data
+    neval = 100            # How often to store performance data
     batch_size = 20         # How often to perform a training step.
     max_steps = nrows*ncols # Max moves per game for p1
-    update_opponent=False   # if true the NN will train against the most recent version of itself
+    update_opponent=True   # if true the NN will train against the most recent version of itself
 
     nfilters = 16           # number of convolutional filters
     f_size = 4              # convolutional filter sizes
@@ -165,7 +165,7 @@ if __name__ == '__main__':
                         saver.save(sess,'./my-checkpoints'+'/model',global_step=episode)
 
                         if update_opponent: # load in most recent model checkpoint
-                            game.env.InitAI()
+                            game.env.InitAI('./my-checkpoints')
 
                     break
 

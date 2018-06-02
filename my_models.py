@@ -73,8 +73,10 @@ def discount_rewards(r,gamma=0.95,normalize_rewards=False):
     return discounted_r
 
 class cnn_model():
+    """Custom RL agent - The agent takes a state and produces an action."""
+
     def __init__(self,nrows,ncols,nactions,nfilters=8,f_size=4,h_size=10,d_rate=0.01,l_rate=0.01):
-        """Custom RL agent - The agent takes a state and produces an action.
+        """
             Current architecture is [using batch of size BS]:
 
             __Layer__                __Shape__           __Values__
@@ -105,6 +107,8 @@ class cnn_model():
 
             with tf.name_scope('Split_Input'):
                 self.input_state_sep = tf.placeholder(shape=[None,nrows,ncols,3],dtype=tf.float32,name="input_state_sep")
+                tf.add_to_collection('input_layer',self.input_state_sep)
+
                 # would be nice to use split_board internally as a class method
                 # self.input_state_sep = self.split_board(self.input_state)
                 self.game_summary.append(tf.summary.image('Input_State_Sep', self.input_state_sep))
