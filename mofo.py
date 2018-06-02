@@ -43,6 +43,8 @@ from gym.envs.classic_control import rendering
 import tensorflow as tf
 import time
 
+import my_models
+
 class MoFoEnv(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
@@ -203,23 +205,18 @@ class MoFoEnv(gym.Env):
             else: # return control to next player
                 return self.Board.copy(), reward, False, p
 
-    def InitAI(self,import_dir="/Users/steffencruz/Desktop/py/my-checkpoints/"):
+    def InitAI(self,import_dir):
 
-        start_time = time.time()
         # search for latest model that was saved and grab it
         self.filename = tf.train.latest_checkpoint(import_dir)
-        self.saver = tf.train.import_meta_graph(self.filename+'.meta')
+        saver = tf.train.import_meta_graph(self.filename+'.meta')
 
         self.sess = tf.Session()
-        self.saver.restore(self.sess,self.filename)
+        saver.restore(self.sess,self.filename)
         self.graph = tf.get_default_graph()
-
-        self.AI_input  = self.graph.get_tensor_by_name('Input/Split_Input/input_state_sep:0')
-        self.AI_action = self.graph.get_collection('sample_op')[0]
-        end_time = time.time()
-        # print('self.sess=',self.sess,'self.AI_input=',self.AI_input,'\nself.AI_action=',self.AI_action,'\ntime =',end_time-start_time)
         self.AI = True
-        print('Loaded most recent AI.')
+
+        print('Loaded most recent AI:',self.filename)
 
     def AITurn(self):
 
@@ -228,10 +225,10 @@ class MoFoEnv(gym.Env):
             return np.random.randint(self.NCols)
         else:
             # start_time = time.time()
-            self.AI_input  = self.graph.get_tensor_by_name('Input/Split_Input/input_state_sep:0')
+            self.AI_input  = self.graph.get_collection('input_layer')[0]
             self.AI_action = self.graph.get_collection('sample_op')[0]
             # print('self.sess=',self.sess,'self.AI_input=',self.AI_input,'\nself.AI_action=',self.AI_action)
-            action = self.sess.run(self.AI_action,{self.AI_input:mfs.split_board(self.Board)})
+            action = self.sess.run(self.AI_action,{self.AI_input:my_models.split_board(self.Board)})
             # print('NN chooses action',action[0][0])
             # end_time = time.time()
             # print('\ntime=',end_time-start_time)
