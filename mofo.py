@@ -219,20 +219,15 @@ class MoFoEnv(gym.Env):
         print('Loaded most recent AI:',self.filename)
 
     def AITurn(self):
+        """ computer opponents are trained RL agent or random number generator"""
 
-        if self.AI==False:
-            # print('NN chooses random action')
-            return np.random.randint(self.NCols)
-        else:
-            # start_time = time.time()
+        if self.AI:
             self.AI_input  = self.graph.get_collection('input_layer')[0]
             self.AI_action = self.graph.get_collection('sample_op')[0]
-            # print('self.sess=',self.sess,'self.AI_input=',self.AI_input,'\nself.AI_action=',self.AI_action)
             action = self.sess.run(self.AI_action,{self.AI_input:my_models.split_board(self.Board)})
-            # print('NN chooses action',action[0][0])
-            # end_time = time.time()
-            # print('\ntime=',end_time-start_time)
             return action[0][0]
+        else:
+            return np.random.randint(self.NCols)
 
     def render(self, mode='human'):
 
