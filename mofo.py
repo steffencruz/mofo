@@ -43,7 +43,7 @@ from gym.envs.classic_control import rendering
 import tensorflow as tf
 import time
 
-import my_models
+# import my_models
 
 class MoFoEnv(gym.Env):
     metadata = {
@@ -170,6 +170,7 @@ class MoFoEnv(gym.Env):
             x = action
             # determine reward, check who's turn is next and if game is over
             reward_p1 = self.PlayTurn(x,p)
+            # reward_p1 = np.max([0,reward_p1])
             p = self.Player
             if p==0:  # game over
                 return self.Board.copy(), reward_p1, True, self.Winner
@@ -182,13 +183,9 @@ class MoFoEnv(gym.Env):
                 reward_p2 = self.PlayTurn(x,p)
                 p = self.Player
 
-                # now enemy +ve points are returned as a penalty too
+                # if opponent scores then subtract this from reward
                 if reward_p2>0:
                     reward_p1 -= reward_p2
-
-                # if opponent scores then subtract this from reward
-                # if reward_p2>0:
-                #     reward_p1 -= reward_p2
 
             if p==0:  # game over
                 return self.Board.copy(), reward_p1, True, self.Winner
@@ -205,6 +202,35 @@ class MoFoEnv(gym.Env):
             else: # return control to next player
                 return self.Board.copy(), reward, False, p
 
+    def PlayGame(self,is_human=[True,False],model_dir=''):
+        if np.all(is_human)==False:
+            self.InitAI(model_dir)
+
+        print('\n\n__________ MoFo ___________')
+        print('Player 1 is human:',is_human[0])
+        print('Player 2 is human:',is_human[1])
+
+        self.Training = False
+        self.verbose=1
+        p = self.Player
+        while p!=0:
+
+            if is_human[p-1]:
+                self.PrintBoard(fancy=True)
+                istr = "Human player "+str(p)+", choose a column number: "
+                while True:
+                    x = input(istr)
+                    if len(x)>0:
+                        x=int(x)
+                        break
+            else:
+                x = self.AITurn()
+
+            self.PlayTurn(x,p)
+            p = self.Player
+
+        return self.Points
+
     def InitAI(self,import_dir):
 
         # search for latest model that was saved and grab it
@@ -217,6 +243,7 @@ class MoFoEnv(gym.Env):
         self.AI = True
 
         print('Loaded most recent AI:',self.filename)
+        return True
 
     def AITurn(self):
         """ computer opponents are trained RL agent or random number generator"""
@@ -224,7 +251,8 @@ class MoFoEnv(gym.Env):
         if self.AI:
             self.AI_input  = self.graph.get_collection('input_layer')[0]
             self.AI_action = self.graph.get_collection('sample_op')[0]
-            action = self.sess.run(self.AI_action,{self.AI_input:my_models.split_board(self.Board)})
+            # action = self.sess.run(self.AI_action,{self.AI_input:my_models.split_board(self.Board)})
+            action = self.sess.run(self.AI_action,{self.AI_input:self.Board})
             return action[0][0]
         else:
             return np.random.randint(self.NCols)
@@ -516,7 +544,7 @@ class MoFoEnv(gym.Env):
         return len(pos[0])
         # return np.max([len(pos[0]),len(pos[1])])
 
-    def PrintBoard(self):
+    def PrintBoard(self,fancy=False):
 
         """
         prints board state
@@ -524,23 +552,23 @@ class MoFoEnv(gym.Env):
 
         # vectorize MovesPlayed to keep a history of the game
         x,y = self.MovesPlayed[-1,1:3]
-        # print("Player",self.Player,"placed a counter at x =",x,"y =",y,"\n")
 
-        syms = ['  .','  x','  o']
+        print('\n\tBOARD')
+        if fancy:
+            syms = ['  .','  x','  o']
+            for j in range(self.NRows-1,-1,-1):
+                symstr = '\t'
+                # symstr[0] = ' '
+                for i in range(self.NCols):
+                    symstr += syms[int(self.Board[j,i])]
+                print(*symstr,"   ",j,sep="")
+            print("\n\t",*range(self.NCols),sep="  ")
+            print("\t   column\n")
+        else:
+            print(np.flipud(self.Board))
 
-        print('\n\t\tBOARD')
-        print(np.flipud(self.Board))
-        # for j in range(self.NRows-1,-1,-1):
-        #     symstr = np.chararray(self.NCols)
-        #     symstr[0] = ' '
-        #     for i in range(0,self.NCols):
-        #         symstr=np.append(symstr,syms[int(self.Board[j,i])])
-        #     # symstr=np.append(symstr,j)
-        #     print(*symstr,"   ",j,sep="")
-        # print("\n ",*range(self.NCols),sep="  ")
-        # print("\t\tcolumn\n")
-        print('\n\t\tSCORE')
-        print('    Player 1 :',self.Points[0],'\tPlayer 2 :',self.Points[1],'\n\n')
+        print('\n\tSCORE')
+        print('\tPlayer 1 :',self.Points[0],'\tPlayer 2 :',self.Points[1])
         print("\nThere are",self.CountCells(self.Board),"(total) turns remaining..\n")
 
     def PrintMoves(self):

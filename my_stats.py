@@ -50,8 +50,6 @@ class training_log():
     def add_game(self,game_outcome,ep,dr_gamma=0.95,norm_r=True):
         """Adds information about current game to games log"""
 
-        # if self.total_in_batch==0:
-        #     self.reset_game_log()
         if self.nturns==0:
             print('Error: game had zero moves. Nothing was added to game_log')
             return 0
@@ -61,10 +59,14 @@ class training_log():
 
         i0 = self.total_in_batch
         discounted_rewards = my_models.discount_rewards(self.turns_reward,dr_gamma,norm_r)
+        running_reward = np.cumsum(self.turns_reward)
+        self.running_reward = running_reward[0:self.nturns]
+
         for i in range(self.nturns):
             self.games_cstate[i0+i,:,:] = self.turns_cstate[i,:,:]
             self.games_action[i0+i] = self.turns_action[i]
             self.games_reward[i0+i] = discounted_rewards[i]
+            self.games_running_reward[i0+i] = running_reward[i]
 
         self.games_total_reward[self.ngames] = np.sum(self.turns_reward)
         self.games_length[self.ngames] = self.nturns
@@ -82,6 +84,18 @@ class training_log():
             self.add_batch()
 
         return self.ngames
+
+    def add_game_performance(self,num_in_batch,loss,cross_entropy=-1):
+
+        if num_in_batch>=self.batch_size or num_in_batch<0:
+            print('Error: cannot add NN performance data for game',num_in_batch,'[ >',self.batch_size,']')
+            return False
+
+        self.games_loss[num_in_batch]=loss
+        if cross_entropy>=0:
+            self.games_cross_entropy[num_in_batch]=cross_entropy
+
+        return True
 
     def add_batch(self):
         """Adds summary information across multiple batches to batch log
@@ -109,26 +123,31 @@ class training_log():
         self.batch_ave_turns[self.nbatches] = np.mean(self.games_length[0:iend])
         self.batch_std_turns[self.nbatches] = np.std(self.games_length[0:iend])
 
-        # self.batch_ave_loss[self.nbatches] = np.mean(self.games_loss[0:iend])
-        # self.batch_std_loss[self.nbatches] = np.std(self.games_loss[0:iend])
+        self.batch_ave_loss[self.nbatches] = np.mean(self.games_loss[0:iend])
+        self.batch_std_loss[self.nbatches] = np.std(self.games_loss[0:iend])
+
+        self.batch_ave_ce[self.nbatches] = np.mean(self.games_cross_entropy[0:iend])
+        self.batch_std_ce[self.nbatches] = np.std(self.games_cross_entropy[0:iend])
 
         self.nbatches+=1
 
     def get_training_data(self):
 
-        raw_states = np.zeros([self.total_in_batch,self.nrows,self.ncols,1])
+        states = np.zeros([self.total_in_batch,self.nrows,self.ncols,1])
         for i in range(self.total_in_batch):
-            raw_states[i,:,:,0] = self.games_cstate[i,:,:]
+            states[i,:,:,0] = self.games_cstate[i,:,:]
 
         # appropriate dimensions are taken care of in split_board with argument self.batch
-        sep_states = my_models.split_board(self.games_cstate,self.total_in_batch)
+        # sep_states = my_models.split_board(self.games_cstate,self.total_in_batch)
 
         actions = self.games_action[0:self.total_in_batch]
         rewards = self.games_reward[0:self.total_in_batch]
 
-        return raw_states,sep_states,actions,rewards
+        # return raw_states,sep_states,actions,rewards
+        return states,actions,rewards
 
-    def get_performance_record(self,fetch_batches=[-1],percentage=True,sum_batches=False):
+
+    def get_batch_record(self,fetch_batches=[-1],percentage=True,sum_batches=False):
         """ returns game performance stats
         eg. won 70, lost 3, drew 25, out-of-steps 2, played 100
         stored as elements in stats:- 0=w,1=l,2=d,3=s,4=tot
@@ -148,10 +167,8 @@ class training_log():
             if np.abs(bat)>self.nbatches+1:
                 print('Error: cannot get performance stats for batch ',bat,'.. [ max =',self.nbatches,']')
                 return stats
-            elif bat<0:
-                indx = self.nbatches+bat
-            else:
-                indx = bat
+            elif bat<0: indx = self.nbatches+bat
+            else:       indx = bat
 
             stats[i,:] = self.batch_record[indx,:]
 
@@ -174,6 +191,43 @@ class training_log():
 
         return tot,won,lost,drew,step
 
+    def get_running_reward(self,all_batch=False):
+
+        if all_batch:
+            return self.games_running_reward.copy()
+        else: # only for most recent game
+            return self.running_reward.copy()
+
+    def get_batch_rewards(self,fetch_batches=[-1],sum_batches=False):
+        """ returns reward data
+        """
+
+        if hasattr(fetch_batches,"__len__"):
+            nfetch = len(fetch_batches)
+        else:
+            nfetch=1
+            fetch_batches = [fetch_batches]
+
+        avg_rew = np.zeros(nfetch)
+        std_rew = np.zeros(nfetch)
+
+        for i,bat in enumerate(fetch_batches):
+            indx = 0
+            if np.abs(bat)>self.total_in_batch+1:
+                print('Error: cannot get rewards for batch ',bat,'.. [ >',self.nbatches,']')
+                return stats
+            elif bat<0: indx = self.nbatches+bat
+            else:       indx = bat
+
+            avg_rew[i] = self.batch_ave_reward[indx]
+            std_rew[i] = self.batch_std_reward[indx]
+
+        if sum_batches: # return a single value for avg and std
+            avg_rew = np.mean(avg_rew)
+            std_rew = np.mean(std_rew)
+
+        return avg_rew,std_rew
+
     def reset_turn_log(self):
         self.nturns=0
 
@@ -187,16 +241,20 @@ class training_log():
         self.ngames=0
         self.total_in_batch=0
 
-        max_batch = self.max_turns*self.batch_size
+        max_in_batch = self.max_turns*self.batch_size
         # pre-declared numpy containers that can contain up to max_batch elements
-        self.games_cstate = np.zeros([max_batch,self.nrows,self.ncols])
-        self.games_nstate = np.zeros([max_batch,self.nrows,self.ncols])
-        self.games_action = np.zeros(max_batch)
-        self.games_reward = np.zeros(max_batch)
+        self.games_cstate = np.zeros([max_in_batch,self.nrows,self.ncols])
+        self.games_nstate = np.zeros([max_in_batch,self.nrows,self.ncols])
+        self.games_action = np.zeros(max_in_batch)
+        self.games_reward = np.zeros(max_in_batch)
+        self.games_running_reward = np.zeros(max_in_batch)
+        self.running_reward=0 # easy-to-use variable size container
 
         self.games_total_reward = np.zeros(self.batch_size)
         self.games_record = np.zeros(self.batch_size)
         self.games_length = np.zeros(self.batch_size)
+        self.games_loss = np.zeros(self.batch_size)
+        self.games_cross_entropy = np.zeros(self.batch_size)
 
         self.reset_turn_log()
 
@@ -205,15 +263,41 @@ class training_log():
         self.batch_record = np.zeros([self.max_batches,5])
         self.batch_ave_reward = np.zeros(self.max_batches)
         self.batch_std_reward = np.zeros(self.max_batches)
-        self.batch_ave_turns = np.zeros(self.max_batches)
-        self.batch_std_turns = np.zeros(self.max_batches)
-
+        self.batch_ave_turns  = np.zeros(self.max_batches)
+        self.batch_std_turns  = np.zeros(self.max_batches)
+        self.batch_ave_loss   = np.zeros(self.max_batches)
+        self.batch_std_loss   = np.zeros(self.max_batches)
+        self.batch_ave_ce     = np.zeros(self.max_batches)
+        self.batch_std_ce     = np.zeros(self.max_batches)
         self.reset_game_log()
 
-    def plot_stats(self,game_name):
+    def regroup(self,x,naverage=1):
+
+        if naverage<=1:
+            return x
+        elif naverage>len(x):
+            print('Error: Cannot re-group',len(x),'points into %.0f'%naverage,'points.')
+            return x
+
+        new_length = round(len(x)/naverage)
+        ave_x = np.zeros([new_length])
+
+        sum_x = 0.0
+        j = 0
+        for i in range(len(x)):
+            sum_x+=x[i]
+            if i%naverage==0:
+                ave_x[j]=sum_x/float(naverage)
+                j+=1
+                sum_x=0.0
+
+        return ave_x
+
+    def plot_stats(self,game_name,ngroup=-1):
 
         # plot variables which coincide with episodes [eps] array
         eps = range(0,self.num_episodes,self.batch_size)
+        x = self.regroup(eps,ngroup)
 
         fig = plt.figure(figsize=(10,8), dpi=90)
         fig.patch.set_facecolor('white')
@@ -221,35 +305,43 @@ class training_log():
 
         ax = fig.add_subplot(221)
         ax.set_xlabel('Number of Games', fontsize=14)
-        ax.set_ylabel('Average Score [error band = stderr]', fontsize=14)
-        plt.plot(eps,self.batch_ave_reward,'k-')
-        plt.fill_between(eps, self.batch_ave_reward-self.batch_std_reward,
-                    self.batch_ave_reward+self.batch_std_reward,alpha=0.2)
+        ax.set_ylabel('Average Reward', fontsize=14)
+        y = self.regroup(self.batch_ave_reward,ngroup)
+        dy = self.regroup(self.batch_std_reward,ngroup)
+        plt.plot(x,y,'k-')
+        plt.fill_between(x,y-dy,y+dy,color='b',alpha=0.2)
 
         ax = fig.add_subplot(222)
         ax.set_xlabel('Number of Games', fontsize=14)
         ax.set_ylabel('Average Loss', fontsize=14)
-        # plt.plot(eps,self.batch_ave_,'k-')
-        # plt.fill_between(eps, avg_l-std_l, avg_l+std_l,color='r',alpha=0.2)
+        y = self.regroup(self.batch_ave_loss,ngroup)
+        dy = self.regroup(self.batch_std_loss,ngroup)
+        plt.plot(x,y,'k-')
+        plt.fill_between(x,y-dy,y+dy,color='r',alpha=0.2)
 
         ax = fig.add_subplot(223)
         ax.set_xlabel('Number of Games', fontsize=14)
         ax.set_ylabel('Average Turns', fontsize=14)
-        plt.plot(eps,self.batch_ave_turns,'k-')
-        plt.fill_between(eps, self.batch_ave_turns-self.batch_std_turns,
-                    self.batch_ave_turns+self.batch_std_turns,color='g',alpha=0.2)
+        y = self.regroup(self.batch_ave_turns,ngroup)
+        dy = self.regroup(self.batch_std_turns,ngroup)
+        plt.plot(x,y,'k-')
+        plt.fill_between(x,y-dy,y+dy,color='g',alpha=0.2)
 
         ax = fig.add_subplot(224)
         ax.set_xlabel('Number of Games', fontsize=14)
         ax.set_ylabel('Performance per batch', fontsize=14)
 
-        _,won,lost,drew,step = self.get_performance_record(fetch_batches=np.arange(self.nbatches),
+        _,won,lost,drew,step = self.get_batch_record(fetch_batches=np.arange(self.nbatches),
                                                             sum_batches=False,percentage=True)
+        w = self.regroup(won,ngroup)
+        l = self.regroup(lost,ngroup)
+        d = self.regroup(drew,ngroup)
+        s = self.regroup(step,ngroup)
 
-        plt.plot(eps,won,'g-',label='won')
-        plt.plot(eps,lost,'r-',label='lost')
-        plt.plot(eps,drew,'b-',label='drew')
-        plt.plot(eps,step,'k:',label='out-of-steps')
+        plt.plot(x,w,'g-',label='won')
+        plt.plot(x,l,'r-',label='lost')
+        plt.plot(x,d,'b-',label='drew')
+        plt.plot(x,s,'k:',label='out-of-steps')
         plt.legend(fontsize=9)
 
         # plt.show()
