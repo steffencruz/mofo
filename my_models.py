@@ -62,7 +62,6 @@ def discount_rewards(r,gamma=0.95,normalize_rewards=False):
 
     # print('\n->discounted_r',discounted_r)
     if normalize_rewards and not np.all(discounted_r==0):
-        # print('could not normalize rewards because sum=%.3f'%dr_mean,'+/-%.3f'%dr_stddev,'\ndiscounted_r=',*discounted_r)
         # print('discounted rewards before norm: avg=%.3f'%dr_mean,'+/-%.3f'%dr_stddev,end=' ')
         dd = discounted_r
         dd -= np.mean(discounted_r)
@@ -85,14 +84,17 @@ class cnn_model():
         """
             Current architecture is [using batch of size BS]:
 
-            __Layer__                __Shape__           __Values__
-            input_state         [BS,nrows,ncols,1]  0=empty,1=p1,2=p2
+            __Layer__                __Shape__             __Values__
+            input_state         [BS,nrows,ncols,1]      0=empty,1=p1,2=p2
 
             __Filter__            __Filter Shape__
-            conv_filter:     [f_size,f_size,3,nfilters]
+            conv_filter:     [f_size,f_size,1,nfilters]
 
             __Layer__                __Shape__
-            conv_flat           [BS,nrows,ncols,1]
+            conv_layer       [BS,nrows,ncols,nfilters]
+            conv_flat        [BS,nrows*ncols*nfilters]
+            hidden           [BS,10]
+            output           [BS,ncols]
 
         """
 
@@ -155,6 +157,7 @@ class cnn_model():
             self.game_summary.append(tf.summary.histogram('Output',self.output))
 
             # chosen action is sampled from output probability distribution
+            # self.sample_op = tf.multinomial(logits=self.output,num_samples=1,name="sample_op")
             self.sample_op = tf.multinomial(logits=self.output,num_samples=1,name="sample_op")
             tf.add_to_collection('sample_op',self.sample_op)
             # chosen action is action with largest probability
@@ -174,13 +177,32 @@ class cnn_model():
             self.onehot_labels=tf.one_hot(self.action_holder,nactions)
             self.cross_entropy = tf.losses.softmax_cross_entropy(onehot_labels=self.onehot_labels,
                                                                 logits=self.output)
-            self.loss = tf.reduce_sum(self.reward_holder * self.cross_entropy)
+            # self.loss = tf.reduce_sum(self.reward_holder * self.cross_entropy)
+
+            ##########################################################
+            # old way of doing it [0] is batch size, [1] is action indx
+            self.indexes = tf.range(0, tf.shape(self.output)[0]) * tf.shape(self.output)[1] + self.action_holder
+            self.responsible_outputs = tf.gather(tf.reshape(self.output, [-1]), self.indexes)
+
+            self.loss = -tf.reduce_mean(tf.log(self.responsible_outputs)*self.reward_holder)
+
+            tvars = tf.trainable_variables()
+
+            self.gradient_holders = []
+            for idx,var in enumerate(tvars):
+                placeholder = tf.placeholder(tf.float32,name=str(idx)+'_holder')
+                self.gradient_holders.append(placeholder)
+
+            self.gradients = tf.gradients(self.loss,tvars)
+            self.optimizer = tf.train.AdamOptimizer(learning_rate=l_rate)
+            self.update_batch = self.optimizer.apply_gradients(zip(self.gradient_holders,tvars))
+            ##########################################################
 
             self.batch_summary.append(tf.summary.histogram('Cross_Entropy',self.cross_entropy))
             self.batch_summary.append(tf.summary.histogram('Loss',self.loss))
 
         with tf.name_scope('Train'):
-            self.optimizer = tf.train.AdamOptimizer(learning_rate=l_rate)
+            # self.optimizer = tf.train.AdamOptimizer(learning_rate=l_rate)
             self.train_op = self.optimizer.minimize(self.loss)
 
         with tf.name_scope('Performance'):
@@ -213,7 +235,7 @@ class cnn_model():
             print('Warning: a summary was not found for opt=',opt,'so full summary will be returned')
             return tf.summary.merge_all()
 
-    def choose_action(self,sess,state,annealing_steps=10000,start_eps=0.5,end_eps=0.01):
+    def choose_action(self,sess,state,annealing_steps=10000,start_eps=0.0,end_eps=0.0):
 
         if self.eps==None or self.eps_step==None:
             self.eps = start_eps
@@ -223,6 +245,9 @@ class cnn_model():
             action = np.random.randint(0,self.nactions)
         else:
             action = sess.run(self.sample_op,{self.input_state:state})[0][0]
+            # if action>=self.nactions:
+            # probs = sess.run(self.output,{self.input_state:state})
+            # print('NN.output=',probs,'\t action chosen =',action)
 
         self.eps -= self.eps_step
 

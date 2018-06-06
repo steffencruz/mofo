@@ -11,22 +11,26 @@ The winner is the player with the most points when the board is full.
 This can be played with any board size or shape,
 which significantly affects the complexity of the game and possible strategies.
 
-To import this environment into OpenAI gym:-
+To play in OpenAI Gym:-
 
-    1. create or add to existing __init__.py file in gym/envs/my_collection:
+    1. Install OpenAI gym at https://github.com/openai/gym
 
-    from gym.envs.my_collection.mofo import MoFoEnv
+    2. Move this mofo.py file to gym/envs/my_collection
 
-    2. register the env in __init__.py file in gym/envs/
+    3. create or add to existing __init__.py file in gym/envs/my_collection:
 
-    register(
-        id='MoFo-v0',
-        entry_point='gym.envs.my_collection:MoFoEnv',
-        max_episode_steps=200,
-        reward_threshold=50.0,
-    )
+        from gym.envs.my_collection.mofo import MoFoEnv
 
-    3. To load environment and apply custom settings;
+    4. register the env in __init__.py file in gym/envs/
+
+        register(
+            id='MoFo-v0',
+            entry_point='gym.envs.my_collection:MoFoEnv',
+            max_episode_steps=200,
+            reward_threshold=50.0,
+        )
+
+    5. To load environment and apply custom settings;
 
         game = gym.make('MoFo-v0') # default initialization
         game.env.initialize(nrows,ncols,verbose,training,testing)
@@ -231,18 +235,21 @@ class MoFoEnv(gym.Env):
 
         return self.Points
 
-    def InitAI(self,import_dir):
+    def InitAI(self,import_dir,filename=''):
 
-        # search for latest model that was saved and grab it
-        self.filename = tf.train.latest_checkpoint(import_dir)
-        saver = tf.train.import_meta_graph(self.filename+'.meta')
+        if len(filename)==0:
+            # if no filename given search for latest model that was saved
+            filename = tf.train.latest_checkpoint(import_dir+filename)
+            saver = tf.train.import_meta_graph(filename+'.meta')
+        else:
+            saver = tf.train.import_meta_graph(import_dir+'/'+filename+'.meta')
 
         self.sess = tf.Session()
-        saver.restore(self.sess,self.filename)
+        saver.restore(self.sess,filename)
         self.graph = tf.get_default_graph()
         self.AI = True
 
-        print('Loaded most recent AI:',self.filename)
+        print('Loaded most recent AI:',filename)
         return True
 
     def AITurn(self):
@@ -252,7 +259,8 @@ class MoFoEnv(gym.Env):
             self.AI_input  = self.graph.get_collection('input_layer')[0]
             self.AI_action = self.graph.get_collection('sample_op')[0]
             # action = self.sess.run(self.AI_action,{self.AI_input:my_models.split_board(self.Board)})
-            action = self.sess.run(self.AI_action,{self.AI_input:self.Board})
+            action = self.sess.run(self.AI_action,{
+                        self.AI_input:self.Board.reshape((1,self.NRows,self.NCols,1))})
             return action[0][0]
         else:
             return np.random.randint(self.NCols)

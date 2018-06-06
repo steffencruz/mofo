@@ -47,7 +47,7 @@ class training_log():
 
         return self.nturns
 
-    def add_game(self,game_outcome,ep,dr_gamma=0.95,norm_r=True):
+    def add_game(self,game_outcome,ep,dr_gamma=0.95,norm_r=False):
         """Adds information about current game to games log"""
 
         if self.nturns==0:
@@ -131,17 +131,31 @@ class training_log():
 
         self.nbatches+=1
 
-    def get_training_data(self):
+    def get_training_data(self,ngames=-1):
 
-        states = np.zeros([self.total_in_batch,self.nrows,self.ncols,1])
-        for i in range(self.total_in_batch):
-            states[i,:,:,0] = self.games_cstate[i,:,:]
+        i0     = 0
+        nturns = int(self.total_in_batch)
+        iend   = nturns
+
+        # select ngames most recent games
+        if ngames<0:
+            pass # negative input defaults to all games in batch
+        elif ngames>=0 and ngames<=self.ngames:
+            nturns = int(np.sum(self.games_length[self.ngames-ngames:self.ngames]))
+            i0 = int(iend - nturns)
+        else:
+            print('Error: ngames =',ngames,'is more than total_in_batch [ =',self.total_in_batch,']')
+            return 0,0,0
+
+        states = np.zeros([nturns,self.nrows,self.ncols,1])
+        for i in range(nturns):
+            states[i,:,:,0] = self.games_cstate[i0+i,:,:]
 
         # appropriate dimensions are taken care of in split_board with argument self.batch
         # sep_states = my_models.split_board(self.games_cstate,self.total_in_batch)
 
-        actions = self.games_action[0:self.total_in_batch]
-        rewards = self.games_reward[0:self.total_in_batch]
+        actions = self.games_action[i0:iend]
+        rewards = self.games_reward[i0:iend]
 
         # return raw_states,sep_states,actions,rewards
         return states,actions,rewards
@@ -215,7 +229,7 @@ class training_log():
             indx = 0
             if np.abs(bat)>self.total_in_batch+1:
                 print('Error: cannot get rewards for batch ',bat,'.. [ >',self.nbatches,']')
-                return stats
+                return 0,0
             elif bat<0: indx = self.nbatches+bat
             else:       indx = bat
 
