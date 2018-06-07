@@ -10,7 +10,8 @@
     -> To view trained model in tensorboard, tensorboard --logdir my-output/graph-$neval/
 
     TO DO:
-    -> Make it train better.
+    -> Optimize training performance further
+    -> anneal game lengths or end of game penalty
     -> Make a tournament
 """
 
@@ -42,25 +43,40 @@ if __name__ == '__main__':
     nrows, ncols = game.observation_space.shape
     nactions = game.action_space.n
 
-    total_episodes = 10000  # total number of games to train agent on
+    total_episodes = 50000  # total number of games to train agent on
     episode = 0             # starting episode
     max_steps = nrows*ncols # Max moves per game for p1
-    batch_size = 10         # How often to perform a training step.
-    neval = 500             # How often to store performance data
+    mxstp_penalty = 0       # penalty to discourage running out of steps
+    batch_size = 10          # How often to perform a training step.
+    neval = 100             # How often to store performance data
 
+    save_model=False         # if true the model is saved every neval games
     update_opponent=False   # if true the NN will train against the most recent version of itself
-    save_model=False        # if true the model is saved every neval games
     debug=False             # prints a bunch of stuff (~everything) to help debugging
+    # game.env.InitAI('./my-checkpoints')    # init opponent to best version
 
-    nfilters = 8            # number of convolutional filters
+    nfilters = 4            # number of convolutional filters
     f_size = 2              # convolutional filter sizes
     h_size = 20             # hidden layer size
-    gamma = 0.0             # dicount reward rate -> depends on game length
-    d_rate = 0.00           # dropout rate
-    l_rate = 0.01           # learning rate
+    gamma = 0.7             # dicount reward rate -> depends on game length
+    norm_dr = True          # normalize discount rewards
+    d_rate = 0.1            # dropout rate
+    l_rate = 0.001           # learning rate [Adam optimizer]
+
+    eps_max=0.0
+    eps_min=0.0
+    annealing_steps=20000.
+
+    # in order for a MVP to be automatically saved, the batch must first outperform:
+    best_model = False
+    won_best = 80.0         # percentage victory
+    rew_best = 1.0          # average points per game
+    # as each new best performer emerges, it must be better than the previous MVP
 
     tf.reset_default_graph() # Clear the Tensorflow graph.
 
+    # cnn_model is a convolution nn which uses raw board states
+    # cnn_sb_model is the same but separates the states into separate p1 and p2 board
     NN = my_models.cnn_model(nrows=nrows,ncols=ncols,nactions=nactions,
                     nfilters=nfilters,f_size=f_size,h_size=h_size,
                     d_rate=d_rate,l_rate=l_rate)
@@ -94,6 +110,7 @@ if __name__ == '__main__':
             current_state = game.reset()
             episode += 1
             running_reward = 0.0
+            action_probs = 0
 
             for j in range(max_steps):
 
@@ -101,20 +118,14 @@ if __name__ == '__main__':
                 state = np.reshape(current_state,(1,nrows,ncols,1)).copy()
 
                 # choose action from NN
-                # action = NN.choose_action(sess,state)
-                action_probs = sess.run(NN.output,{NN.input_state:state})[0]
-                action = np.random.choice(np.arange(ncols,dtype=np.int32),p=action_probs)
+                action = NN.choose_action(sess,state,start_eps=eps_max,end_eps=eps_min,annealing_steps=annealing_steps) # no random picking
 
                 # apply action and update observation,reward,done,info
                 next_state,reward,done,info = game.step(action)
 
-                if debug:
-                    print('\nEpisode:',episode,'turn:',j,'action:',action,'action_probs: ',format_array(action_probs),'reward:',reward)
-
                 if j==max_steps-1:  # out-of-steps
                     info = -1 # flag the game as out-of-steps
-                    # reward-=10 # huge penalty to discourage this behaviour
-                    reward-=1 # small penalty to keep gradients stable
+                    reward-=mxstp_penalty # penalty to discourage this behaviour
                     done = True # flag game as ended
 
                 stats_logger.add_turn(current_state=current_state_copy,
@@ -125,7 +136,7 @@ if __name__ == '__main__':
 
                 if done == True: # end-of-game
                     # store game result [1=p1 win, 2=p2 win, 0=draw, -1=out-of-steps]
-                    stats_logger.add_game(game_outcome=info,ep=episode,dr_gamma=gamma,norm_r=False)
+                    stats_logger.add_game(game_outcome=info,ep=episode,dr_gamma=gamma,norm_r=norm_dr)
 
                     # grab training data for most recent fame
                     observations,actions,rewards = stats_logger.get_training_data(ngames=1)
@@ -137,7 +148,7 @@ if __name__ == '__main__':
                     if debug:
                         ins,acts,rews,indexes,resp,loss,outputs =sess.run([NN.input_state,NN.action_holder,NN.reward_holder,NN.indexes,NN.responsible_outputs,NN.loss,NN.output],feed_dict=feed_dict)
                         print('\naction_holder    =',format_array(acts,dtype='int'))
-                        print('reward_holder    =',format_array(rews,dtype='int'))
+                        print('reward_holder    =',format_array(rews))
                         print('indexes          =',format_array(indexes,dtype='int'))
                         print('resp_outputs     =',format_array(resp))
                         print('log(resp)        =',format_array(np.log(resp)))
@@ -163,6 +174,14 @@ if __name__ == '__main__':
                         for ix,grad in enumerate(gradBuffer):
                             gradBuffer[ix] = grad * 0
 
+                        # get stats for this batch
+                        tot,won,lost,drew,steps = stats_logger.get_batch_record(fetch_batches=-1,
+                                                            sum_batches=False,percentage=True)
+
+                        # return the avg and std reward of the last nbat games
+                        avg_rew,std_rew = stats_logger.get_batch_rewards(fetch_batches=-1,
+                                                            sum_batches=True)
+
                         if save_model:
                             # write the running reward for this game to a scalar for TensorBoard
                             rr = stats_logger.get_running_reward()
@@ -170,16 +189,12 @@ if __name__ == '__main__':
                                 summary = sess.run(step_summary,{NN.running_reward:R})
                                 file_writer.add_summary(summary,episode-batch_size+i)
 
-                            # get stats for this batch
-                            tot,won,lost,drew,steps = stats_logger.get_batch_record(fetch_batches=-1,
-                                                                sum_batches=False,percentage=True)
-
                             fetches = [game_summary,NN.train_op]
                             full_feed_dict = dict(feed_dict)
                             stats_dict = {NN.won:won, NN.lost:lost, NN.drew:drew, NN.steps:steps}
                             full_feed_dict.update(stats_dict)
 
-                            summary = sess.run(fetches,feed_dict=full_feed_dict)[0]
+                            summary = sess.run(game_summary,feed_dict=feed_dict)
                             file_writer.add_summary(summary,episode)
                             file_writer.flush()
 
@@ -205,7 +220,20 @@ if __name__ == '__main__':
                             '  Time = %.2f s'%(end_time-start_time),sep='')
                         start_time = time.time()
 
-                        if save_model:
+                        # save consistently high-scoring model over neval games
+                        if won>=won_best and avg_rew>rew_best:
+                            won_best = won
+                            rew_best = avg_rew
+                            best_model = True
+                            print('New best performing model! won %3.1f%%'%won,' with avg_rew = %.1f'%avg_rew,' Saving.\n')
+                        else:
+                            best_model = False
+
+                        if save_model or best_model:
+
+                            # reset best model flag
+                            best_model = False
+
                             file_writer = tf.summary.FileWriter('./my-output'+'/graph-'+str(episode), sess.graph)
 
                             # grab everything in fetches [data size is batch size]

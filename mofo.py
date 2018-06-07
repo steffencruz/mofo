@@ -55,7 +55,7 @@ class MoFoEnv(gym.Env):
         'video.frames_per_second' : 30
     }
 
-    def __init__(self,nrows=4,ncols=4,verbose=0,training=True,testing=False):
+    def __init__(self,nrows=7,ncols=7,verbose=0,training=True,testing=False):
 
         """
         initializes core variables and begins game
@@ -261,7 +261,7 @@ class MoFoEnv(gym.Env):
             # action = self.sess.run(self.AI_action,{self.AI_input:my_models.split_board(self.Board)})
             action = self.sess.run(self.AI_action,{
                         self.AI_input:self.Board.reshape((1,self.NRows,self.NCols,1))})
-            return action[0][0]
+            return action[0]
         else:
             return np.random.randint(self.NCols)
 
