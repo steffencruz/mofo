@@ -1,6 +1,22 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import my_models
+
+def discount_rewards(r,gamma=0.95,normalize_rewards=False):
+    """ take 1D float array of rewards and compute discounted reward """
+    discounted_r = np.zeros_like(r,dtype=np.float32)
+    running_add = 0
+
+    for t in reversed(range(0, r.size)):
+        running_add = running_add * gamma + r[t]
+        discounted_r[t] = float(running_add)
+
+    if normalize_rewards and not np.all(discounted_r==0):
+        dd = discounted_r
+        dd -= np.mean(discounted_r)
+        dd /= np.std(discounted_r)
+        discounted_r = dd
+
+    return discounted_r
 
 class training_log():
     """
@@ -13,7 +29,7 @@ class training_log():
                 automatically and will create a summary for whole batch
             4. To produce a dictionary for training, call get_training_data
             5. Call get_performance_record to get played-won-lost-drew-steps stats
-            6.
+            6. Plot performance across entire training using plot_stats
     """
     def __init__(self,nrows,ncols,max_steps,batch_size,num_episodes):
         self.nrows = nrows
@@ -58,14 +74,14 @@ class training_log():
             return 0
 
         i0 = self.total_in_batch
-        discounted_rewards = my_models.discount_rewards(self.turns_reward,dr_gamma,norm_r)
+        discounted_r = discount_rewards(self.turns_reward,dr_gamma,norm_r)
         running_reward = np.cumsum(self.turns_reward)
         self.running_reward = running_reward[0:self.nturns]
 
         for i in range(self.nturns):
             self.games_cstate[i0+i,:,:] = self.turns_cstate[i,:,:]
             self.games_action[i0+i] = self.turns_action[i]
-            self.games_reward[i0+i] = discounted_rewards[i]
+            self.games_reward[i0+i] = discounted_r[i]
             self.games_running_reward[i0+i] = running_reward[i]
 
         self.games_total_reward[self.ngames] = np.sum(self.turns_reward)
@@ -86,6 +102,7 @@ class training_log():
         return self.ngames
 
     def add_game_performance(self,num_in_batch,loss,cross_entropy=-1):
+        """ stores some extra data such as loss and cross entropy"""
 
         if num_in_batch>=self.batch_size or num_in_batch<0:
             print('Error: cannot add NN performance data for game',num_in_batch,'[ >',self.batch_size,']')
@@ -132,6 +149,7 @@ class training_log():
         self.nbatches+=1
 
     def get_training_data(self,ngames=-1):
+        """ returns states,rewards and actions for ngames games"""
 
         i0     = 0
         nturns = int(self.total_in_batch)
@@ -159,7 +177,6 @@ class training_log():
 
         # return raw_states,sep_states,actions,rewards
         return states,actions,rewards
-
 
     def get_batch_record(self,fetch_batches=[-1],percentage=True,sum_batches=False):
         """ returns game performance stats
@@ -286,6 +303,7 @@ class training_log():
         self.reset_game_log()
 
     def regroup(self,x,naverage=1):
+        """ re-groups a set of points into a smaller group of averages"""
 
         if naverage<=1:
             return x
