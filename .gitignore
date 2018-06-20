@@ -2,3 +2,4 @@ __pycache__/
 build/
 dist/
 mofo.egg-info/
+my-output/
