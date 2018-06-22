@@ -64,7 +64,7 @@ class MoFoEnv(gym.Env):
         self.AI_action = None
 
         self.action_space = spaces.Discrete(ncols)
-        self.observation_space = spaces.Box(-1,-1,[nrows,ncols],dtype='int')
+        self.observation_space = spaces.Box(-1,-1,[nrows,ncols])
 
         self.seed()
         self.viewer = None

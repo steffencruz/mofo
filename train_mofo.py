@@ -24,6 +24,8 @@ import tensorflow as tf
 import my_models
 import my_stats
 
+from mofo.envs import MoFoEnv
+
 def format_array(arr,sep=' ',eol='',dtype='float'):
     strarr=''
     for i in range(len(arr)):
@@ -36,8 +38,7 @@ def format_array(arr,sep=' ',eol='',dtype='float'):
 
 if __name__ == '__main__':
 
-    game_name = 'MoFo-v0'
-    game = gym.make(game_name)
+    game = MoFoEnv()
 
     observation = game.reset()
     nrows, ncols = game.observation_space.shape
